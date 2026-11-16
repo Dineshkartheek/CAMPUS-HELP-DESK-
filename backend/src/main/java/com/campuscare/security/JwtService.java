@@ -9,6 +9,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.env.Environment;
+import org.springframework.core.env.Profiles;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
 
@@ -42,7 +43,7 @@ public class JwtService {
     }
 
     private SecretKey buildKey(String configuredSecret, Environment environment) {
-        boolean localProfile = environment.acceptsProfiles(profile -> "dev".equals(profile) || "test".equals(profile));
+        boolean localProfile = environment.acceptsProfiles(Profiles.of("dev", "test"));
 
         if (configuredSecret == null || configuredSecret.isBlank()) {
             if (!localProfile) {
