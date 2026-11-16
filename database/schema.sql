@@ -1,165 +1,233 @@
--- ============================================================
--- CAMPUSCARE - SMART CAMPUS HELP DESK MANAGEMENT SYSTEM
--- MySQL 8.0 schema
+-- ============================================================================
+-- CAMPUSCARE — Smart Campus Help Desk Management System
+-- Production MySQL 8 schema (Theme 6 — Sunset Glass build)
 --
--- Safe to run on a new or existing database: tables are created only
--- if they do not exist. Existing data is never deleted by this script.
+-- Usage (MySQL Workbench or CLI, as an administrator):
+--   SOURCE database/schema.sql;
+--   SOURCE database/sample_data.sql;   -- optional demo data
 --
--- Usage:
---   1. Run as a MySQL user that can create databases.
---   2. The application itself creates the first MAIN_ADMIN from
---      MAIN_ADMIN_EMAIL / MAIN_ADMIN_PASSWORD environment variables.
---      Never insert a plain-text password into this file.
--- ============================================================
+-- The Spring Boot application uses JPA with ddl-auto=update, so it can also
+-- create/extend these tables itself. This script is the authoritative,
+-- idempotent definition and never drops tables or deletes data.
+-- ============================================================================
 
 CREATE DATABASE IF NOT EXISTS helpdesk_db
-    CHARACTER SET utf8mb4
-    COLLATE utf8mb4_unicode_ci;
+  CHARACTER SET utf8mb4
+  COLLATE utf8mb4_unicode_ci;
 
 USE helpdesk_db;
 
--- ------------------------------------------------------------
--- 1. USERS
--- ------------------------------------------------------------
+-- ---------------------------------------------------------------------------
+-- 1. users — students, admins and the main administrator
+-- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS users (
-    id            BIGINT       NOT NULL AUTO_INCREMENT,
-    full_name     VARCHAR(120) NOT NULL,
-    email         VARCHAR(180) NOT NULL,
-    password_hash VARCHAR(100) NOT NULL,
-    role          VARCHAR(20)  NOT NULL,
-    department    VARCHAR(120) NULL,
-    active        TINYINT(1)   NOT NULL DEFAULT 1,
-    created_at    TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-    updated_at    TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
-    PRIMARY KEY (id),
-    UNIQUE KEY uk_users_email (email),
-    KEY idx_users_role (role),
-    CONSTRAINT chk_users_role CHECK (role IN ('STUDENT', 'ADMIN', 'MAIN_ADMIN'))
-) ENGINE = InnoDB;
+  id                 BIGINT       NOT NULL AUTO_INCREMENT,
+  full_name          VARCHAR(120) NOT NULL,
+  email              VARCHAR(190) NOT NULL,
+  password_hash      VARCHAR(100) NOT NULL,
+  role               VARCHAR(20)  NOT NULL,
+  registration_number VARCHAR(50) NULL,
+  department         VARCHAR(120) NULL,
+  year               TINYINT      NULL,
+  section            VARCHAR(10)  NULL,
+  active             BOOLEAN      NOT NULL DEFAULT TRUE,
+  created_at         TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at         TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_users_email (email),
+  UNIQUE KEY uk_users_registration (registration_number),
+  KEY idx_users_role (role),
+  KEY idx_users_active (active),
+  CONSTRAINT chk_users_role CHECK (role IN ('STUDENT', 'ADMIN', 'MAIN_ADMIN')),
+  CONSTRAINT chk_users_year CHECK (year IS NULL OR (year BETWEEN 1 AND 5))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- ------------------------------------------------------------
--- 2. CATEGORIES
--- ------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS categories (
-    id          BIGINT       NOT NULL AUTO_INCREMENT,
-    name        VARCHAR(80)  NOT NULL,
-    description VARCHAR(255) NULL,
-    active      TINYINT(1)   NOT NULL DEFAULT 1,
-    created_at  TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-    PRIMARY KEY (id),
-    UNIQUE KEY uk_categories_name (name)
-) ENGINE = InnoDB;
+-- ---------------------------------------------------------------------------
+-- 2. complaints
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS complaints (
+  id               BIGINT       NOT NULL AUTO_INCREMENT,
+  complaint_code   VARCHAR(30)  NOT NULL,
+  student_id       BIGINT       NOT NULL,
+  category         VARCHAR(40)  NOT NULL,
+  subject          VARCHAR(160) NOT NULL,
+  description      TEXT         NOT NULL,
+  location         VARCHAR(160) NULL,
+  room_number      VARCHAR(40)  NULL,
+  priority         VARCHAR(20)  NOT NULL,
+  status           VARCHAR(20)  NOT NULL DEFAULT 'PENDING',
+  current_admin_id BIGINT       NULL,
+  attachment_name  VARCHAR(255) NULL,
+  attachment_path  VARCHAR(500) NULL,
+  created_at       TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at       TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_complaints_code (complaint_code),
+  KEY idx_complaints_student (student_id),
+  KEY idx_complaints_status (status),
+  KEY idx_complaints_category (category),
+  KEY idx_complaints_priority (priority),
+  KEY idx_complaints_admin (current_admin_id),
+  KEY idx_complaints_created (created_at),
+  CONSTRAINT fk_complaints_student FOREIGN KEY (student_id) REFERENCES users (id),
+  CONSTRAINT fk_complaints_admin FOREIGN KEY (current_admin_id) REFERENCES users (id),
+  CONSTRAINT chk_complaints_status CHECK (status IN
+    ('PENDING', 'ASSIGNED', 'IN_PROGRESS', 'RESOLVED', 'REOPENED')),
+  CONSTRAINT chk_complaints_priority CHECK (priority IN ('LOW', 'MEDIUM', 'HIGH', 'URGENT')),
+  CONSTRAINT chk_complaints_category CHECK (category IN
+    ('WIFI', 'ELECTRICAL', 'HARDWARE', 'SOFTWARE', 'CLASSROOM',
+     'LABORATORY', 'WATER', 'WASHROOM', 'OTHER'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- ------------------------------------------------------------
--- 3. TICKETS
--- ------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS tickets (
-    id                      BIGINT        NOT NULL AUTO_INCREMENT,
-    ticket_number           VARCHAR(32)   NOT NULL,
-    student_id              BIGINT        NOT NULL,
-    category_id             BIGINT        NOT NULL,
-    title                   VARCHAR(160)  NOT NULL,
-    description             TEXT          NOT NULL,
-    location                VARCHAR(180)  NOT NULL,
-    priority                VARCHAR(20)   NOT NULL,
-    status                  VARCHAR(20)   NOT NULL DEFAULT 'SUBMITTED',
-    assigned_admin_id       BIGINT        NULL,
-    admin_remarks           VARCHAR(2000) NULL,
-    ai_suggested_category   VARCHAR(80)   NULL,
-    ai_suggested_priority   VARCHAR(20)   NULL,
-    ai_summary              VARCHAR(500)  NULL,
-    ai_suggested_department VARCHAR(120)  NULL,
-    created_at              TIMESTAMP(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-    updated_at              TIMESTAMP(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
-    resolved_at             TIMESTAMP(6)  NULL,
-    PRIMARY KEY (id),
-    UNIQUE KEY uk_tickets_number (ticket_number),
-    KEY idx_tickets_student (student_id),
-    KEY idx_tickets_category (category_id),
-    KEY idx_tickets_status (status),
-    KEY idx_tickets_priority (priority),
-    KEY idx_tickets_created (created_at),
-    KEY idx_tickets_assigned_admin (assigned_admin_id),
-    CONSTRAINT fk_tickets_student FOREIGN KEY (student_id) REFERENCES users (id),
-    CONSTRAINT fk_tickets_category FOREIGN KEY (category_id) REFERENCES categories (id),
-    CONSTRAINT fk_tickets_assigned_admin FOREIGN KEY (assigned_admin_id) REFERENCES users (id),
-    CONSTRAINT chk_tickets_status CHECK (status IN ('SUBMITTED', 'ASSIGNED', 'IN_PROGRESS', 'RESOLVED', 'CLOSED', 'REJECTED')),
-    CONSTRAINT chk_tickets_priority CHECK (priority IN ('LOW', 'MEDIUM', 'HIGH', 'URGENT'))
-) ENGINE = InnoDB;
+-- ---------------------------------------------------------------------------
+-- 3. complaint_assignments — audit of who is handling a complaint
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS complaint_assignments (
+  id           BIGINT       NOT NULL AUTO_INCREMENT,
+  complaint_id BIGINT       NOT NULL,
+  admin_id     BIGINT       NOT NULL,
+  assigned_by  BIGINT       NOT NULL,
+  note         VARCHAR(500) NULL,
+  active       BOOLEAN      NOT NULL DEFAULT TRUE,
+  created_at   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_assignments_complaint (complaint_id),
+  KEY idx_assignments_admin (admin_id),
+  CONSTRAINT fk_assignments_complaint FOREIGN KEY (complaint_id)
+    REFERENCES complaints (id) ON DELETE CASCADE,
+  CONSTRAINT fk_assignments_admin FOREIGN KEY (admin_id) REFERENCES users (id),
+  CONSTRAINT fk_assignments_by FOREIGN KEY (assigned_by) REFERENCES users (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- ------------------------------------------------------------
--- 4. TICKET COMMENTS
--- ------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS ticket_comments (
-    id         BIGINT        NOT NULL AUTO_INCREMENT,
-    ticket_id  BIGINT        NOT NULL,
-    author_id  BIGINT        NOT NULL,
-    message    VARCHAR(2000) NOT NULL,
-    created_at TIMESTAMP(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-    PRIMARY KEY (id),
-    KEY idx_comments_ticket (ticket_id),
-    KEY idx_comments_author (author_id),
-    CONSTRAINT fk_comments_ticket FOREIGN KEY (ticket_id) REFERENCES tickets (id) ON DELETE CASCADE,
-    CONSTRAINT fk_comments_author FOREIGN KEY (author_id) REFERENCES users (id)
-) ENGINE = InnoDB;
+-- ---------------------------------------------------------------------------
+-- 4. complaint_status_history — immutable workflow audit
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS complaint_status_history (
+  id           BIGINT        NOT NULL AUTO_INCREMENT,
+  complaint_id BIGINT        NOT NULL,
+  updated_by   BIGINT        NOT NULL,
+  old_status   VARCHAR(20)   NULL,
+  new_status   VARCHAR(20)   NOT NULL,
+  remarks      VARCHAR(1000) NULL,
+  created_at   TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_status_history_complaint (complaint_id),
+  KEY idx_status_history_created (created_at),
+  CONSTRAINT fk_status_history_complaint FOREIGN KEY (complaint_id)
+    REFERENCES complaints (id) ON DELETE CASCADE,
+  CONSTRAINT fk_status_history_user FOREIGN KEY (updated_by) REFERENCES users (id),
+  CONSTRAINT chk_status_history_new CHECK (new_status IN
+    ('PENDING', 'ASSIGNED', 'IN_PROGRESS', 'RESOLVED', 'REOPENED'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- ------------------------------------------------------------
--- 5. TICKET ASSIGNMENTS
--- ------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS ticket_assignments (
-    id          BIGINT       NOT NULL AUTO_INCREMENT,
-    ticket_id   BIGINT       NOT NULL,
-    admin_id    BIGINT       NOT NULL,
-    assigned_by BIGINT       NOT NULL,
-    note        VARCHAR(255) NULL,
-    active      TINYINT(1)   NOT NULL DEFAULT 1,
-    assigned_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-    PRIMARY KEY (id),
-    KEY idx_assignments_ticket (ticket_id),
-    KEY idx_assignments_admin (admin_id),
-    CONSTRAINT fk_assignments_ticket FOREIGN KEY (ticket_id) REFERENCES tickets (id) ON DELETE CASCADE,
-    CONSTRAINT fk_assignments_admin FOREIGN KEY (admin_id) REFERENCES users (id),
-    CONSTRAINT fk_assignments_assigned_by FOREIGN KEY (assigned_by) REFERENCES users (id)
-) ENGINE = InnoDB;
+-- ---------------------------------------------------------------------------
+-- 5. complaint_remarks — administrator remarks shown to the student
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS complaint_remarks (
+  id           BIGINT        NOT NULL AUTO_INCREMENT,
+  complaint_id BIGINT        NOT NULL,
+  admin_id     BIGINT        NOT NULL,
+  remark       VARCHAR(1000) NOT NULL,
+  created_at   TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_remarks_complaint (complaint_id),
+  CONSTRAINT fk_remarks_complaint FOREIGN KEY (complaint_id)
+    REFERENCES complaints (id) ON DELETE CASCADE,
+  CONSTRAINT fk_remarks_admin FOREIGN KEY (admin_id) REFERENCES users (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- ------------------------------------------------------------
--- 6. TICKET STATUS HISTORY
--- ------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS ticket_status_history (
-    id          BIGINT        NOT NULL AUTO_INCREMENT,
-    ticket_id   BIGINT        NOT NULL,
-    from_status VARCHAR(20)   NULL,
-    to_status   VARCHAR(20)   NOT NULL,
-    changed_by  BIGINT        NOT NULL,
-    remarks     VARCHAR(1000) NULL,
-    changed_at  TIMESTAMP(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-    PRIMARY KEY (id),
-    KEY idx_history_ticket (ticket_id),
-    KEY idx_history_changed_at (changed_at),
-    CONSTRAINT fk_history_ticket FOREIGN KEY (ticket_id) REFERENCES tickets (id) ON DELETE CASCADE,
-    CONSTRAINT fk_history_changed_by FOREIGN KEY (changed_by) REFERENCES users (id)
-) ENGINE = InnoDB;
+-- ---------------------------------------------------------------------------
+-- 6. confidential_reports — Main-Admin-only support reports
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS confidential_reports (
+  id          BIGINT       NOT NULL AUTO_INCREMENT,
+  report_code VARCHAR(30)  NOT NULL,
+  student_id  BIGINT       NOT NULL,
+  category    VARCHAR(40)  NOT NULL,
+  description TEXT         NOT NULL,
+  location    VARCHAR(160) NULL,
+  status      VARCHAR(20)  NOT NULL DEFAULT 'PENDING',
+  created_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_reports_code (report_code),
+  KEY idx_reports_student (student_id),
+  KEY idx_reports_status (status),
+  KEY idx_reports_created (created_at),
+  CONSTRAINT fk_reports_student FOREIGN KEY (student_id) REFERENCES users (id),
+  CONSTRAINT chk_reports_status CHECK (status IN ('PENDING', 'IN_REVIEW', 'RESOLVED', 'REJECTED')),
+  CONSTRAINT chk_reports_category CHECK (category IN
+    ('HARASSMENT', 'RAGGING', 'SAFETY', 'DISCRIMINATION', 'ACADEMIC', 'FINANCIAL', 'OTHER'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- ------------------------------------------------------------
--- INITIAL COMPLAINT CATEGORIES
--- ------------------------------------------------------------
-INSERT IGNORE INTO categories (name, description) VALUES
-    ('Wi-Fi',        'Campus wireless internet and access point issues'),
-    ('Smart Board',  'Classroom smart boards and display panels'),
-    ('Electrical',   'Power, lighting, fans and electrical repairs'),
-    ('Computer Lab', 'Lab computers, software and peripherals'),
-    ('Network',      'Wired network, switches and connectivity'),
-    ('Classroom',    'Classroom furniture, projectors and facilities'),
-    ('Internet',     'General internet access and bandwidth'),
-    ('Other',        'Any other campus support request');
+-- ---------------------------------------------------------------------------
+-- 7. confidential_report_history
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS confidential_report_history (
+  id         BIGINT        NOT NULL AUTO_INCREMENT,
+  report_id  BIGINT        NOT NULL,
+  updated_by BIGINT        NOT NULL,
+  old_status VARCHAR(20)   NULL,
+  new_status VARCHAR(20)   NOT NULL,
+  remarks    VARCHAR(1000) NULL,
+  created_at TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_report_history_report (report_id),
+  CONSTRAINT fk_report_history_report FOREIGN KEY (report_id)
+    REFERENCES confidential_reports (id) ON DELETE CASCADE,
+  CONSTRAINT fk_report_history_user FOREIGN KEY (updated_by) REFERENCES users (id),
+  CONSTRAINT chk_report_history_new CHECK (new_status IN ('PENDING', 'IN_REVIEW', 'RESOLVED', 'REJECTED'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- ------------------------------------------------------------
--- FIRST MAIN ADMIN
--- ------------------------------------------------------------
--- Do NOT insert a plain-text password here.
--- Set these environment variables before starting the backend once:
---   MAIN_ADMIN_EMAIL=you@example.com
---   MAIN_ADMIN_PASSWORD=a-strong-password
--- The backend hashes it with BCrypt and creates the account automatically.
--- After the first successful startup, remove MAIN_ADMIN_PASSWORD from the
--- environment if you do not want the bootstrap check to run again.
+-- ---------------------------------------------------------------------------
+-- 8. admin_departments — department / support-category ownership per admin
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS admin_departments (
+  id               BIGINT       NOT NULL AUTO_INCREMENT,
+  admin_id         BIGINT       NOT NULL,
+  department       VARCHAR(120) NOT NULL,
+  support_category VARCHAR(40)  NULL,
+  created_at       TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_admin_departments_admin (admin_id),
+  CONSTRAINT fk_admin_departments_admin FOREIGN KEY (admin_id)
+    REFERENCES users (id) ON DELETE CASCADE,
+  CONSTRAINT chk_admin_departments_category CHECK (support_category IS NULL OR support_category IN
+    ('HARASSMENT', 'RAGGING', 'SAFETY', 'DISCRIMINATION', 'ACADEMIC', 'FINANCIAL', 'OTHER'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- 9. notifications
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS notifications (
+  id         BIGINT       NOT NULL AUTO_INCREMENT,
+  user_id    BIGINT       NOT NULL,
+  title      VARCHAR(120) NOT NULL,
+  message    VARCHAR(500) NOT NULL,
+  is_read    BOOLEAN      NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_notifications_user (user_id),
+  KEY idx_notifications_read (is_read),
+  CONSTRAINT fk_notifications_user FOREIGN KEY (user_id)
+    REFERENCES users (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- 10. audit_logs — security and workflow trail
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id          BIGINT       NOT NULL AUTO_INCREMENT,
+  actor_id    BIGINT       NULL,
+  actor_email VARCHAR(190) NOT NULL,
+  action      VARCHAR(60)  NOT NULL,
+  entity_type VARCHAR(40)  NULL,
+  entity_id   BIGINT       NULL,
+  details     VARCHAR(500) NULL,
+  created_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_audit_created (created_at),
+  KEY idx_audit_actor (actor_id),
+  KEY idx_audit_action (action),
+  CONSTRAINT fk_audit_actor FOREIGN KEY (actor_id) REFERENCES users (id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

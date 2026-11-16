@@ -1,260 +1,231 @@
-# PROJECT AUDIT — CampusCare Smart Campus Help Desk
+# PROJECT AUDIT — CAMPUSCARE v2 (Sky Glass rebuild)
 
-**Repository:** `CAMPUS-HELP-DESK-`  
-**Branch audited:** `main`  
 **Audit date:** 16 November 2026  
-**Auditor:** Implementation pass performed directly in the repository  
-**Author:** V. Dinesh Kartheek — Centurion University of Technology and Management, Vizianagaram
+**Repository:** `CAMPUS-HELP-DESK-`  
+**Branch:** `main`  
+**Author:** V. Dinesh Kartheek
 
 ---
 
-## 1. Executive summary
+## 1. Starting point
 
-The repository was a near-empty academic placeholder: a two-line `README.md` and an initial commit,
-with no backend, frontend, database script, tests or deployment configuration. There was no existing
-application behaviour to repair, so the system was rebuilt from scratch at the repository root.
+The repository began with only a two-line placeholder `README.md` and one initial commit
+(`63d2ebd`). No application source, database script, tests or deployment configuration existed.
 
-The delivered system is a complete Java 21 / Spring Boot 3.5.16 / MySQL 8 / React 18 application
-covering student, administrator and Main Administrator portals, JWT security, a validated ticket
-workflow, audit history, comments, assignments, category management, user management, confidential
-reports and CSV exports.
+A first full-stack version was implemented and committed (`7d830c3`, plus a JWT dev-profile fix
+`b4c1479`). That version used Spring Data JPA, a ticket workflow, the `helpdesk_db` schema and an
+IBM-inspired light navy/white interface.
 
-The backend compiles, packages into an executable JAR and its six end-to-end integration tests pass on
-H2. The frontend production build succeeds. Live MySQL connectivity, the live Gemini call and the
-public Vercel backend URL could not be exercised in this environment because MySQL, a Gemini key and
-hosting credentials were not available. These items are explicitly listed as unverified and are
-covered by the deployment runbook.
+A revised brief then specified a different application: **Sky Glass – Dark Edition**, Spring
+**JdbcTemplate** (not JPA), a `campuscare_db` schema, complaint/support-report modules, admin
+management, analytics, new API paths and the `VITE_API_BASE_URL` convention. This audit documents
+the resulting v2 rebuild.
 
 ---
 
-## 2. Initial state
+## 2. Rebuild strategy
 
-| Area | Finding | Severity |
+Because the new brief changes the data model, persistence technology, API paths, state machine,
+categories, routes and visual language, the application was rebuilt rather than patched:
+
+| Area | v1 (preserved in git history) | v2 (current) |
 | --- | --- | --- |
-| Source code | No backend or frontend source existed | Blocker |
-| Build files | No `pom.xml`, `package.json` or lockfile | Blocker |
-| Database | No schema, seed data or migration script | Blocker |
-| Authentication | No authentication or authorization implementation | Blocker |
-| API | No REST endpoints | Blocker |
-| Tests | No automated tests | High |
-| Environment documentation | No `.env.example` or configuration guidance | High |
-| Deployment | No checked-in Vercel configuration in the repository | High |
-| Documentation | Two-line README only | Medium |
-| Git history | One initial commit; all delivered work is new | Informational |
+| Persistence | Spring Data JPA / Hibernate | Spring JDBC / JdbcTemplate prepared statements |
+| Database | `helpdesk_db` | `campuscare_db` |
+| Core entity | tickets + assignments + comments | complaints + complaint_history + support_reports |
+| Statuses | SUBMITTED/ASSIGNED/.../CLOSED | PENDING/IN_PROGRESS/RESOLVED/REJECTED |
+| Categories | Wi-Fi, Smart Board, ... | Wi-Fi/Network, Electrical, Hardware, Software, Classroom, Library, Hostel, Washroom, Other |
+| Confidential module | none | student support reports, Main Admin only |
+| Admin management | user directory + role status | create/edit admins, department, categories, activation |
+| Analytics | basic reports | monthly/category/status/priority/workload/resolution |
+| Frontend | light IBM-inspired | Sky Glass dark glassmorphism |
+| API env var | `VITE_API_URL` | `VITE_API_BASE_URL` |
+| Routes | mixed ticket/admin paths | role-prefixed student/admin/main-admin routes |
 
-### 2.1 Environment convention defect
-
-The task brief referred to a backend URL variable named `CAMPUSCARE_BACKEND_URL`. Vite only exposes
-environment variables prefixed with `VITE_` to browser code. A variable without that prefix is
-therefore silently unavailable at build time, and any frontend that relies on it would fall back to
-localhost or an empty URL in production.
-
-**Resolution:** the frontend now uses `VITE_API_URL` exclusively, centralised in
-`frontend/src/services/api.js` and documented in `frontend/.env.example`, the root `.env.example`,
-the README and the deployment guide. Production deliberately has no localhost fallback.
+The authoritative contract is [`docs/REBUILD_CONTRACT.md`](docs/REBUILD_CONTRACT.md). It was written
+before implementation so the Java and React sides could be built against one source of truth.
 
 ---
 
-## 3. Requirements traceability
+## 3. Requirement traceability
+
+### 3.1 Technology
 
 | Requirement | Implementation | Status |
 | --- | --- | --- |
-| Java 21 target, Spring Boot 3, Maven | `backend/pom.xml` (`java.version=21`, Spring Boot 3.5.16) | Implemented, compiled |
-| Spring Web, JPA, Security, Validation | Starters in `pom.xml`; layered controllers/services/repositories | Implemented |
-| JWT authentication + BCrypt | `JwtService`, `JwtAuthenticationFilter`, `SecurityConfig`, `BCryptPasswordEncoder` | Implemented, tested |
-| MySQL 8 database `helpdesk_db` | `database/schema.sql`, MySQL JDBC configuration | Script delivered; live MySQL unverified |
-| Roles `STUDENT`, `ADMIN`, `MAIN_ADMIN` | `Role` enum, DB check constraint, route rules | Implemented, tested |
-| Public registration creates only students | `AuthService.register` forces `STUDENT`; role not accepted from the client | Implemented, tested |
-| Admins provisioned securely | Main Admin can create ADMIN/MAIN_ADMIN; optional env bootstrap; no hardcoded passwords | Implemented, tested |
-| Six required tables | `users`, `categories`, `tickets`, `ticket_comments`, `ticket_assignments`, `ticket_status_history` | Implemented |
-| Six required statuses | `TicketStatus` enum + DB check constraint | Implemented, tested |
-| Eight initial categories | `DataInitializer` + `schema.sql` seed inserts | Implemented |
-| Health, auth, ticket, admin and main-admin APIs | Controllers listed in README/API overview | Implemented, tested where applicable |
-| Responsive navy/white IBM-inspired design | `frontend/src/styles.css`, IBM Plex Sans, responsive breakpoints | Implemented, built |
-| All required pages | 17 routes/components covering landing, auth, student, admin and main-admin flows | Implemented |
-| Functional buttons, real API data | Every page calls the central API client; no static mock records | Implemented |
-| Loading/error handling | Shared `Spinner`, `LoadingScreen`, `ErrorBanner`, `EmptyState`, toasts | Implemented |
-| Token expiry handling | `401` clears session and dispatches `campuscare:unauthorized` | Implemented |
-| Central API service with `VITE_API_URL` | `frontend/src/services/api.js` | Implemented |
-| Optional Gemini AI, backend only, validated, non-blocking | `AiService`, `GeminiClient`, `/api/ai/suggest` | Implemented; live Gemini unverified |
-| Preserve existing Vercel deployment | Root `vercel.json` builds `frontend/` and outputs `frontend/dist` | Implemented; live deploy requires credentials |
-| Correct backend URL/environment convention | `VITE_API_URL` replaces unusable non-prefixed naming | Implemented |
-| `PROJECT_AUDIT.md`, `DEVELOPMENT_PROGRESS.md`, `README.md` | This file, progress log and README | Implemented |
-| `.env.example` | Root, backend and frontend example files | Implemented |
-| `database/schema.sql` | Full MySQL 8 schema with constraints and seeds | Implemented |
-| Deployment and academic documentation | `docs/DEPLOYMENT.md`, `docs/ACADEMIC_DOCUMENTATION.md` | Implemented |
-| 20 Java viva Q&A | `docs/VIVA_QUESTIONS.md` | Implemented |
-| Run backend tests and frontend build | 6/6 tests pass; production build succeeds | Verified locally |
-| Never claim untested features work | Verification matrix below separates verified and unverified | Honoured |
+| Java 17+ / Spring Boot | Java 21 target, Spring Boot 3.5.16 | Done |
+| Spring Web REST API | Layered controllers and services | Done |
+| Spring JDBC / JdbcTemplate | All repositories use `JdbcTemplate` + `?` parameters | Done |
+| Spring Security + BCrypt | JWT filter, URL rules, BCrypt strength 10 | Done |
+| Maven | `backend/pom.xml` | Done |
+| MySQL 8 relational design | `database/schema.sql` with PKs/FKs/checks/indexes | Done (script); live MySQL pending |
+| React + Vite frontend | React 18 / Vite 5 / Router 6 | Done |
+| Responsive UI | CSS variables + mobile drawer/breakpoints | Done |
+| Lucide icons | `lucide-react` | Done |
+| Vercel frontend / Java backend / hosted MySQL | Root `vercel.json` + deployment guide | Config done; live deployment pending |
+
+### 3.2 UI / design
+
+| Requirement | Implementation | Status |
+| --- | --- | --- |
+| Sky Glass palette and glass panels | CSS variables + `backdrop-filter: blur(18px)` | Done |
+| Rounded, glowing, translucent cards | 16–24 px radii, borders, glow shadows | Done |
+| Floating light effects / gradient motion | Animated background blobs | Done |
+| Hover lift, fade-in, animated buttons/sidebar | CSS animations/transitions | Done |
+| Loading skeletons, toasts | Shared UI components + ToastContext | Done |
+| Responsive laptop/tablet/mobile | Sidebar drawer + fluid grids + scrollable tables | Done (manual browser check pending) |
+| Avoid neon/clutter | Restrained blue/cyan accents | Done |
+
+### 3.3 Authentication
+
+| Requirement | Implementation | Status |
+| --- | --- | --- |
+| Split-screen premium login | Branding panel + glass card | Done |
+| Role selector (Student/Admin/Main Admin) | Tabs; login sends optional expected role; server verifies | Done |
+| Show/hide password, remember me | Implemented; storage strategy switches | Done |
+| Validation/loading/errors | Client validation + server field errors + toast | Done |
+| Registration fields | Name, email, password, confirm, department, student ID | Done |
+| Student-only public registration | Role forced server-side | Done |
+| BCrypt, no plaintext | Hashes only; credentials never returned | Done |
+| Never trust frontend role | Role loaded from DB on each request | Done |
+
+### 3.4 Student module
+
+| Requirement | Implementation | Status |
+| --- | --- | --- |
+| Sidebar pages | Dashboard, Submit, My Complaints, Campus Support, Profile, Logout | Done |
+| Dashboard stats/charts/recent | Real API data | Done |
+| Submit fields + optional attachment | Multipart endpoint with validated file | Done |
+| Unique ID, timestamp, PENDING | `CC-YYYY-XXXXXXXX`, DB timestamps, initial history row | Done |
+| My Complaints columns/status/remarks | List + filters + pagination + detail | Done |
+| Own complaints only | Ownership check returns 404 otherwise | Done |
+| Confidential support module | Create/list own; remarks hidden | Done |
+
+### 3.5 Admin module
+
+| Requirement | Implementation | Status |
+| --- | --- | --- |
+| Sidebar pages | Dashboard, All Complaints, Update Status, Profile, Logout | Done |
+| Dashboard stats/charts/recent | Real API data | Done |
+| Search/filter/sort/pagination | Server-side SQL with whitelisted sort | Done |
+| Table columns and detail | Student, category, priority, remarks, action | Done |
+| Assign complaints | Validated active admin assignment | Done |
+| Status updates + remarks + history | Four statuses, required remarks, immutable history | Done |
+| No confidential access | `/api/main-admin/**` blocked for ADMIN | Done |
+
+### 3.6 Main Admin module
+
+| Requirement | Implementation | Status |
+| --- | --- | --- |
+| Sidebar pages | Dashboard, complaints, status, admins, support, analytics, profile | Done |
+| Dashboard totals + activity | Real API data | Done |
+| Add/view/edit/activate/deactivate admin | Create/edit/status endpoints; last-main-admin guard | Done |
+| Department + assigned categories | Validated category keys | Done |
+| Support reports + confidential remarks | Main-Admin-only list/status update | Done |
+| Analytics | Monthly trend, categories, statuses, priorities, workload, resolution | Done |
+
+### 3.7 Backend / API / database
+
+| Requirement | Implementation | Status |
+| --- | --- | --- |
+| Package structure and layering | config/controller/service/repository/model/dto/security/exception | Done |
+| DTOs, validation, errors, HTTP codes, logging | Envelope + handler + SLF4J | Done |
+| Exact endpoint groups | See contract/README | Done |
+| Five required tables | users, complaints, complaint_history, support_reports, notifications | Done |
+| schema.sql + sample_data.sql | MySQL 8 scripts with keys/indexes/checks | Done (execution pending) |
+| No plaintext passwords | BCrypt hashes only | Done |
+| Frontend uses real API | Central client, no mock data | Done |
+
+### 3.8 Security / deployment
+
+| Requirement | Implementation | Status |
+| --- | --- | --- |
+| JWT, role rules, ownership | Stateless filter + DB-loaded role + service checks | Done |
+| SQL injection protection | Prepared statements; whitelisted sort | Done |
+| Server-side validation | Bean Validation + enum parsing + file checks | Done |
+| CORS + env configuration | `FRONTEND_ORIGIN`, `VITE_API_BASE_URL` | Done |
+| Vercel preserved | Root `vercel.json` builds `frontend/` | Done |
+| Hosted MySQL / live backend | Requires owner credentials | Pending |
 
 ---
 
-## 4. Architecture decisions
+## 4. Key implementation decisions
 
-### 4.1 Backend
-
-- **Layered architecture:** controller → service → repository → entity, with DTO records at the API
-  boundary. Entities are never returned directly.
-- **Stateless security:** JWT in the `Authorization` header; no server session. `401` and `403` are
-  rendered as JSON by custom entry point/access-denied handlers.
-- **Role rules in one place:** URL-pattern rules in `SecurityConfig`, reinforced by service-level
-  ownership and workflow checks.
-- **Workflow integrity:** valid status transitions are defined and enforced in `AdminService`.
-  Every transition and assignment writes an audit row.
-- **Ticket numbers:** `CC-YYYY-XXXXXXXX` using `SecureRandom` and a collision retry loop.
-- **Error contract:** `GlobalExceptionHandler` returns consistent `timestamp/status/error/message/path`
-  bodies with optional `fieldErrors`, and never exposes stack traces.
-- **Startup safety:** production fails fast if `JWT_SECRET` is missing; demo accounts require an
-  explicit `DEMO_PASSWORD`; bootstrap Main Admin requires explicit email and password.
-- **Profile separation:** MySQL is the normal profile. A `dev` H2 profile supports demos without a
-  database server. Tests use an isolated H2 profile.
-
-### 4.2 Frontend
-
-- **Central API client:** one module owns base URL resolution, headers, JSON parsing, CSV downloads,
-  error normalisation and 401 handling.
-- **Session model:** token in `sessionStorage`; `AuthContext` restores the user via `/api/auth/me`;
-  protected routes redirect to the correct role-specific login page.
-- **Role-aware shell:** one `Layout` renders navigation based on the authenticated role, with a
-  mobile drawer and accessible controls.
-- **Server as source of truth:** the UI mirrors allowed status transitions but the backend remains
-  authoritative. The UI never invents ticket or user records.
-- **Shared primitives:** `UI.jsx` centralises headers, cards, badges, spinners, empty/error states,
-  pagination and form fields to keep all pages visually consistent.
-- **No CSS framework dependency:** hand-written CSS gives a distinctive IBM-inspired navy/white
-  system without adding runtime weight.
-
-### 4.3 Deployment
-
-- The root `vercel.json` installs and builds `frontend/`, publishes `frontend/dist`, rewrites all
-  routes to `index.html` and adds security headers. This preserves the existing Vercel project
-  structure where the repository root is the deployment root.
-- `frontend/vercel.json` supports deploying the frontend directory directly as an alternative.
-- The backend is deployment-provider agnostic (Render, Railway, Fly.io, Azure, a Java host or a VM).
-  `DATABASE_URL`-style providers may need the JDBC URL adapted; see `docs/DEPLOYMENT.md`.
+1. **JdbcTemplate over JPA.** The brief required explicit prepared statements. Repositories keep
+   SQL visible and map rows manually; `GeneratedKeyHolder` returns insert ids. Sort strings are
+   whitelisted to avoid injection through dynamic SQL.
+2. **Four workflow statuses.** `PENDING → IN_PROGRESS → RESOLVED`, with `REJECTED` as an outcome.
+   Any status change requires remarks and inserts history; assignments do not invent an extra
+   status. This mirrors the brief instead of v1's six-status ticket model.
+3. **Separate confidential module.** `support_reports` is an independent table. Students can see
+   their own status; only MAIN_ADMIN receives confidential remarks. The normal admin role is
+   blocked at the URL layer and by tests.
+4. **Enum keys + UI labels.** Categories/priorities/statuses are stored as stable keys and exposed
+   with human labels, keeping the database clean and the UI friendly.
+5. **JWT with database authority.** The token identifies the user, but every request loads the user
+   and `active` flag from MySQL. Role changes/deactivation take effect immediately.
+6. **Central frontend API client.** All calls use `VITE_API_BASE_URL`; multipart uploads, JSON
+   envelopes, pagination, errors and 401 handling live in one module.
+7. **Dev/test parity.** H2 in MySQL mode with `schema-h2.sql` for local demos and integration
+   tests; production uses MySQL 8 and the root schema script.
+8. **Attachments.** Optional PDF/PNG/JPG up to 5 MB, stored under `UPLOAD_DIR` with random names;
+   downloads check ownership/role. Production should use object storage.
 
 ---
 
 ## 5. Security review
 
-| Control | Assessment |
-| --- | --- |
-| Password storage | BCrypt; password hash excluded from every DTO |
-| Public registration privilege escalation | Prevented: role is not part of the public request |
-| JWT secret handling | Environment variable; production startup fails without it |
-| JWT expiry | Configurable; expired/invalid tokens produce `401` |
-| Route authorization | `/api/admin/**` ADMIN/MAIN_ADMIN; `/api/main-admin/**` MAIN_ADMIN |
-| Ticket object authorization | Students receive `404` for another student’s ticket |
-| Status transition abuse | Rejected server-side |
-| Assignment abuse | Only active ADMIN/MAIN_ADMIN accounts can be assigned |
-| Account lockout | Self-deactivation and last-Main-Admin deactivation blocked |
-| SQL injection | Spring Data JPA parameter binding; no string-concatenated SQL |
-| XSS | React escapes rendered values; no `dangerouslySetInnerHTML` |
-| CORS | Explicit origins from `FRONTEND_ORIGIN`, credentials allowed only for listed origins |
-| Secret leakage | No real keys, passwords or database credentials committed |
-| Error leakage | No stack traces or SQL details returned |
-| AI key exposure | Backend-only; browser never receives the Gemini key |
-| CSV injection | Values are written with standard quoting; see residual risk below |
-
-### Residual security risks
-
-1. **CSV formula injection:** a student-controlled title beginning with `=`, `+`, `-` or `@` may be
-   interpreted as a formula when opened in some spreadsheet clients. This is a low-severity residual
-   risk for an academic deployment; production hardening should prefix such cells with an apostrophe.
-2. **No rate limiting:** login and AI endpoints rely on the reverse proxy for brute-force protection.
-3. **No password reset/change flow:** the brief did not require it; deactivated accounts and password
-   resets are currently administrative actions.
-4. **No refresh tokens:** a 24-hour JWT is used; expiry forces a new login.
-5. **No automated frontend tests:** the build is verified, but browser E2E tests are a future task.
+| Risk | Mitigation | Result |
+| --- | --- | --- |
+| SQL injection | Every query uses `?`; sort whitelist | Addressed |
+| Plaintext passwords | BCrypt hashing only | Addressed |
+| Role spoofing | Role read from DB; JWT signature verified | Addressed |
+| Horizontal privilege escalation | Student ownership checks → 404 | Addressed |
+| Confidential data leak | MAIN_ADMIN-only support endpoints; DTO hides remarks | Addressed |
+| Deactivated accounts | Rejected on login and per request | Addressed |
+| XSS | React escapes output; no `dangerouslySetInnerHTML` | Addressed |
+| File upload abuse | Type/size validation, random filename, auth download | Addressed |
+| Sensitive errors | Generic JSON errors, no SQL/stack traces | Addressed |
+| CORS | Explicit configured origins | Addressed |
+| Brute force / abuse | Not implemented | Documented limitation; use proxy rate limiting |
 
 ---
 
 ## 6. Verification matrix
 
-### Verified in this environment
-
-| Check | Command / evidence | Result |
+| Check | Method | Status |
 | --- | --- | --- |
-| Backend compiles | `mvn test` (Java 21 target) | Pass |
-| Backend integration tests | `Tests run: 6, Failures: 0, Errors: 0, Skipped: 0` | Pass |
-| Backend JAR packaged | `mvn package` → `target/campuscare-backend-1.0.0.jar` | Pass |
-| Health endpoint | Integration test asserts `status=UP`, `database=UP` | Pass (H2) |
-| Registration/login/profile | Integration test | Pass |
-| Validation and password mismatch | Integration test | Pass |
-| JWT protection | Integration test | Pass |
-| Full ticket workflow, assignment, history, comments | Integration test | Pass |
-| Role restrictions | Integration test | Pass |
-| Main Admin user creation and deactivation | Integration test | Pass |
-| Reports and CSV export | Integration test | Pass |
-| Frontend dependency install | `npm install` | Pass |
-| Frontend production build | `npm run build` → `dist/` | Pass |
+| Backend compilation | `mvn test` | See `DEVELOPMENT_PROGRESS.md` |
+| Backend integration suite | JUnit + MockMvc + H2 | See `DEVELOPMENT_PROGRESS.md` |
+| Backend packaging | `mvn package` | See `DEVELOPMENT_PROGRESS.md` |
+| Frontend production build | `npm run build` | See `DEVELOPMENT_PROGRESS.md` |
+| Local API smoke test | Run backend + frontend, exercise roles | See `DEVELOPMENT_PROGRESS.md` |
+| Live MySQL 8 | Not available in build environment | Pending |
+| Live backend host | Requires hosting credentials | Pending |
+| Live Vercel deployment | Requires Vercel account/env vars | Pending |
+| Browser E2E automation | No Playwright/Cypress suite | Not claimed |
 
-### Not verified in this environment
-
-| Item | Reason | Required action |
-| --- | --- | --- |
-| Live MySQL 8 connection | MySQL server/client and Docker unavailable | Run `schema.sql` and start the backend against MySQL; verify `/api/health` |
-| Live Vercel deployment | Requires repository owner’s Vercel account | Configure `VITE_API_URL` and redeploy |
-| Live backend hosting | Requires hosting account | Deploy the JAR/container and set environment variables |
-| Live Gemini suggestion | No API key | Set `GEMINI_API_KEY` and exercise **Get AI suggestion** |
-| Browser visual/E2E regression | No browser automation dependency in the project | Run the app and walk through each role on a workstation |
-| Production HTTPS/CORS combination | Depends on deployed origins | Set `FRONTEND_ORIGIN` to the exact Vercel URL |
+The project does **not** claim live MySQL, live deployment or browser E2E verification unless it
+was actually performed.
 
 ---
 
-## 7. Page inventory
+## 7. Known limitations
 
-| # | Route | Component | Role |
-| --- | --- | --- | --- |
-| 1 | `/` | `LandingPage` | Public |
-| 2 | `/login` | `LoginPage` (student variant) | Public |
-| 3 | `/admin/login` | `LoginPage` (admin variant) | Public |
-| 4 | `/main-admin/login` | `LoginPage` (main-admin variant) | Public |
-| 5 | `/register` | `RegisterPage` | Public |
-| 6 | `/student` | `StudentDashboard` | Student |
-| 7 | `/student/submit` | `SubmitComplaintPage` | Student |
-| 8 | `/student/tickets` | `MyTicketsPage` | Student |
-| 9 | `/student/tickets/:id` | `TicketDetailPage` | Student |
-| 10 | `/student/profile` | `ProfilePage` | Student |
-| 11 | `/admin` | `AdminDashboard` | Administrator |
-| 12 | `/admin/tickets` | `AdminTicketsPage` | Administrator |
-| 13 | `/admin/tickets/:id` | `AdminTicketDetailPage` | Administrator |
-| 14 | `/main-admin` | `MainAdminDashboard` | Main Administrator |
-| 15 | `/main-admin/tickets` | `AdminTicketsPage` | Main Administrator |
-| 16 | `/main-admin/tickets/:id` | `AdminTicketDetailPage` | Main Administrator |
-| 17 | `/main-admin/users` | `MainAdminUsersPage` | Main Administrator |
-| 18 | `/main-admin/categories` | `MainAdminCategoriesPage` | Main Administrator |
-| 19 | `/main-admin/reports` | `ReportsPage` | Main Administrator |
-| 20 | `/main-admin/profile`, `/admin/profile` | `ProfilePage` | Administrator roles |
-| 21 | `*` | `NotFoundPage` | Public |
-
-The three role-specific login routes share one component with different portal copy, which keeps the
-auth implementation consistent while still presenting distinct entry points.
+- Attachments use local disk; an ephemeral host loses them on restart.
+- The JWT lives in browser storage; HttpOnly cookies/refresh tokens would be stronger.
+- Notifications are stored for status/assignment changes but there is no real-time push/email.
+- No rate limiting, CAPTCHA, password reset email or multi-factor authentication.
+- Analytics use SQL aggregation suitable for a college dataset; very large datasets may need
+  materialized summaries.
+- UI/browser behaviour was verified by production build and manual API smoke tests, not an
+  automated browser suite.
 
 ---
 
-## 8. Known limitations
+## 8. Conclusion
 
-- Public registration is open to anyone with a valid email format; email ownership is not verified
-  (no mail service in scope).
-- There is no password reset, password change or profile editing flow.
-- The user directory is returned as a single list rather than paginated. This is acceptable for a
-  campus-scale dataset but should be paginated if accounts grow into the thousands.
-- The Main Admin dashboard reuses the administrator statistics endpoint plus user/category counts.
-- Reports are generated on demand; there is no scheduled report archive.
-- CSV exports are streamed on demand and not persisted.
-- Dark mode is not offered; the design is intentionally a light navy/white institutional system.
-
----
-
-## 9. Recommendation
-
-The project is structurally complete and demonstrable on the H2 dev profile. Before presenting it as
-a production deployment:
-
-1. Run the full workflow against MySQL 8 using `database/schema.sql`.
-2. Deploy the backend over HTTPS and set `FRONTEND_ORIGIN` to the Vercel URL.
-3. Set `VITE_API_URL` in Vercel and redeploy the frontend.
-4. Bootstrap the first Main Administrator, then remove the bootstrap password.
-5. Add rate limiting and CSV formula escaping at the proxy/service layer.
-6. Add Playwright/Cypress smoke tests for the three portals.
+The v2 application matches the revised brief end-to-end at the source level: a JdbcTemplate-based
+Spring Boot API, normalised MySQL schema, role-secured modules, confidential reporting, admin
+management, analytics, and a complete Sky Glass React UI. Deployment and live database validation
+remain environment-dependent and are clearly tracked rather than assumed.

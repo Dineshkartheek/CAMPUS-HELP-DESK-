@@ -1,15 +1,9 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "installCommand": "cd frontend && npm install",
-  "buildCommand": "cd frontend && npm run build",
-  "outputDirectory": "frontend/dist",
   "framework": null,
-  "rewrites": [
-    {
-      "source": "/(.*)",
-      "destination": "/index.html"
-    }
-  ],
+  "installCommand": "echo \"CampusCare frontend is static - no install required\"",
+  "buildCommand": "echo \"CampusCare frontend is static - no build required\"",
+  "outputDirectory": "frontend",
   "headers": [
     {
       "source": "/(.*)",
